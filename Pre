@@ -1,0 +1,103 @@
+;****************************************************************************
+; Archvo:	Lab3
+; Dispositivo:	PIC16F887
+; Autor:	Daniel GonzÃ¡lez 
+; Carnet:	171506
+; Compilador:	pic-as (v2.30), MPLABX v5.40
+;    
+; Programa:	Botones y timer 0
+; Hardware:	LEDs en el puerto A 
+;
+; Creado:	21 feb, 2021
+; Ultima modificaciÃ³n: 2 feb, 2021
+;*****************************************************************************   
+PROCESSOR 16F887
+#include <xc.inc>
+
+; configuración word1
+ CONFIG FOSC=INTRC_NOCLKOUT //Oscilador interno sin salidas
+ CONFIG WDTE=OFF	    //WDT disabled (reinicio repetitivo del pic)
+ CONFIG PWRTE=ON	    //PWRT enabled (espera de 72ms al iniciar)
+ CONFIG MCLRE=OFF	    //el pin de MCLR se utiliza como I/O 
+ CONFIG CP=OFF		    //Sin protecciÃ³n de cÃ³digo 
+ CONFIG CPD=OFF		    //Sin protecciÃ³n de datos
+ 
+ CONFIG BOREN=OFF //Sin reinicio cuando el voltaje de alimentaciÃ³n baja de 4v
+ CONFIG IESO=OFF    //Reinicio sin cambio de reloj de interno a externo
+ CONFIG FCMEN=OFF   //Cambio de reloj externo a interno en caso de fallo
+ CONFIG LVP=ON	    //Programacion en bajo voltaje permitida 
+ 
+;configuración word2
+  CONFIG WRT=OFF	//Protección de autoescritura 
+  CONFIG BOR4V=BOR40V	//Reinicio abajo de 4V 
+
+;-----------------------------------------------------------------------------
+    ;PSECT udata_bank0 ;common memory
+    ;cont:	DS  2 ;1 byte apartado
+    ;cont_big:	DS  1;1 byte apartado
+  
+  PSECT resVect, class=CODE, abs, delta=2
+  ;----------------------vector reset----------------------------------------         
+  ORG 00h	;posición 000h para el reset
+  resetVec:
+    PAGESEL main
+    goto main
+  
+  PSECT code, delta=2, abs
+  ORG 100h	;Posición para el código
+  ;---------------configuración----------------------------------------------
+  main: 
+    call    config_io
+    call    config_reloj
+    call    config_timer0
+    banksel PORTA 
+;----------loop--------------------------------------------------------------
+ loop: 
+    btfss   T0IF
+    goto    $-1
+    call    reinicio_timer0
+    incf    PORTB
+    goto    loop    ;loop forever 
+;------------sub rutinas-----------------------------------------------------
+ config_timer0:
+    banksel OPTION_REG ;Es el banco de los registros puerto B
+    bcf	    T0CS    ;Clock selection 
+    bcf	    PSA	    ;Prescaler 
+    bsf	    PS2
+    bsf	    PS1
+    bsf	    PS0	    ;PS = 111 tiempo de ejecución, 256
+    
+    banksel TMR0
+    call    reinicio_timer0
+    return
+ reinicio_timer0: 
+    movlw   195
+    movwf   TMR0
+    bcf	    T0IF
+    return
+    
+ config_io:
+    bsf	    STATUS, 5   ;Biblioteca del banco 11
+    bsf	    STATUS, 6	;Banksel ANSEL
+    clrf    ANSEL	;Pines digitales en Puerto
+    clrf    ANSELH
+    
+    bsf	    STATUS, 5	;Biblioteca del banco 01
+    bcf	    STATUS, 6	;Banksel TRISA
+    movlw   11110000B 
+    movwf   TRISB	;salida del PUERTO A 
+    
+    bcf	    STATUS, 5	;Biblioteca del banco 00
+    bcf	    STATUS, 6	;Banksel PORTA
+    clrf    PORTB	;Valor incial 0 en PUERTO A
+    return
+    
+ config_reloj:
+    banksel OSCCON	;Banco OSCCON 
+    bcf	    IRCF2	;OSCCON configuración bit2 IRCF
+    bcf	    IRCF1	;OSCCON configuracuón bit1 IRCF
+    bsf	    IRCF0	;OSCCON configuración bit0 IRCF
+    bsf	    SCS		;reloj interno , 125KHzz
+    return
+    
+end
