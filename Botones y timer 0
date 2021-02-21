@@ -1,0 +1,176 @@
+; Archvo:	Lab3 
+; Dispositivo:	PIC16F887
+; Autor:	Daniel González 
+; Carnet:	171506
+; Compilador:	pic-as (v2.30), MPLABX v5.40
+;    
+; Programa:	Botones y timer 0,
+; Hardware:	LEDs en el puerto b, DISPLAY en puerto C
+;
+; Creado: feb, 2021
+; Ultima modificación: 20 feb, 2021
+;-------------------------------------------------------------------------------
+PROCESSOR 16F887
+#include <xc.inc>
+
+; configuración word1
+ CONFIG FOSC=INTRC_NOCLKOUT //Oscilador interno sin salidas
+ CONFIG WDTE=OFF	    //WDT disabled (reinicio repetitivo del pic)
+ CONFIG PWRTE=ON	    //PWRT enabled (espera de 72ms al iniciar)
+ CONFIG MCLRE=OFF	    //El pin de MCLR se utiliza como I/O 
+ CONFIG CP=OFF		    //Sin protecciÃ³n de cÃ³digo 
+ CONFIG CPD=OFF		    //Sin protecciÃ³n de datos
+ 
+ CONFIG BOREN=OFF   //Sin reinicio cuando el voltaje de alimentaciÃ³n baja de 4v 
+ CONFIG IESO=OFF	    //Reinicio sin cambio de reloj de interno a externo
+ CONFIG FCMEN=OFF	    //Cambio de reloj externo a interno en caso de fallo
+ CONFIG LVP=ON		    //Programacion en bajo voltaje permitida
+ 
+;configuración word2
+  CONFIG WRT=OFF	//Protección de autoescritura 
+  CONFIG BOR4V=BOR40V	//Reinicio abajo de 4V 
+
+;-------------------------------------------------------------------------------
+  PSECT udata_bank0 ;common memory
+    cont:	DS  2 ;1 byte apartado
+    ;cont_big:	DS  1;1 byte apartado
+  
+  PSECT resVect, class=CODE, abs, delta=2
+  ;----------------------vector reset-------------------------------------------
+  ORG 00h	;posición 000h para el reset
+  resetVec:
+    PAGESEL main
+    goto main
+  
+  PSECT code, delta=2, abs
+  ORG 100h	;Posición para el código
+  ;------------------ Tabla variables Display-----------------------------------
+  Tabla:
+    clrf  PCLATH
+    bsf   PCLATH,0
+    andlw 0x0F		   ;Multiplicando hace pasar a los 4 beats
+    addwf PCL		   ;Para agregar los registros en en el PCL 
+    ;Es la asignación para cada valor de l Display
+    retlw 11000000B          ; 0
+    retlw 11111001B          ; 1
+    retlw 10100100B          ; 2
+    retlw 10110000B          ; 3
+    retlw 10011001B          ; 4
+    retlw 10010010B          ; 5
+    retlw 10000010B          ; 6
+    retlw 11111000B          ; 7
+    retlw 10000000B          ; 8
+    retlw 10010000B          ; 9
+    retlw 10001000B          ; A
+    retlw 10000011B          ; b
+    retlw 11000110B          ; C
+    retlw 10100001B          ; d
+    retlw 10000110B          ; E
+    retlw 10001110B          ; F
+ 
+  ;------------------------- Configuración ------------------------------------
+  main: 
+    
+    call    Clock	;Para activar la configuración de la étiqueta     
+    call    Config_TMR0	; Para activar configuracion del timer
+    
+    bsf	    STATUS, 5   ;En el banco 11
+    bsf	    STATUS, 6	;Banksel ANSEL
+    clrf    ANSEL	;A pines digitales 
+    clrf    ANSELH      
+    
+    banksel TRISB       
+    movlw   11110000B   
+    movwf   TRISB	;Declara los primeros 4 pines del port b como salidas
+    clrf    TRISC	;Declara el port C como salida
+    movlw   11110111B   
+    movwf   TRISA       
+    movlw   11110000B 
+    movwf   TRISD
+   
+    banksel PORTB	; Para llamar nuevamente a los registros del banco
+    clrf    PORTB	; Limpiar Puerto B
+    clrf    PORTC	; Limpiar Puerto C
+    clrf    PORTD       ; Limpiar Puerto D
+    clrf    PORTA       ; Limpiar Puerto A 
+    
+  
+    
+;------------------------------ Loop ------------------------------------------
+ Loop: 
+    ;contador para el incremetno o decremento 
+    btfsc   PORTA, 0	; Verifica si el boton esta presionado
+    call    Inc_D       ; Llama a la sub-rutina Inc_A
+    btfsc   PORTA, 1	; Revisar si no esta presionado 
+    call    Dec_D       ; Llama a la sub-rutina Dec_A
+    ;    
+    movf    PORTD,w     ; Para mover el valor del puerto a W
+    call    Tabla       ; Llama valores de la tabla al Display
+    movwf   PORTC       ; Da el valor de la Tabla al Puerto C
+    
+    btfss   T0IF        ; Indica si el valor en el TMR0 sobrepaso
+    goto    Loop        
+    ;goto    $-1	;Vuelve una línea
+    call    Rein_TMR0
+    incf    PORTB	    
+    
+    incf PORTD,w         ; Para cambiar el valor del puerto B al w
+    subwf PORTB,w        ; División del valor W al del puerto D
+    
+    btfsc STATUS,2       ; Verifica si el resultado de la resta es 0
+    call alert           ; Cuando el resultado es 0 enciende Led de alerta
+    
+    btfss STATUS,2       ; Verifica si el resultado de la resta NO es un 0
+    bcf   PORTA,3        ; Si la resta no devuelve valor 0 enciende Led alerta
+    
+    goto    Loop    
+  
+;---------------------------- Sub Rutinas -------------------------------------
+ alert: 
+    bsf   PORTA, 3       ; Para encender LED alarma 
+    clrf  PORTB          ; limpia el Puerto B y reinicia el contador
+    return
+    
+ Config_TMR0:
+    banksel OPTION_REG  
+    bcf	    T0CS         ;Es el reloj interno de registros en el banco, usando el puerto B son los neats de configuración especial. 
+    bcf	    PSA	         ;Prescaler, de la ponderación que se le da al reloj inetrno  
+    bsf	    PS2
+    bsf	    PS1
+    bsf	    PS0	         ;Valor PRESCALAR de 256
+    
+    banksel TMR0
+    call    Rein_TMR0
+    return
+    
+ Rein_TMR0: 
+    movlw   195		;Pondeeración al timpo por formula temporización
+    movwf   TMR0	;Se coloca en el registro de W
+    bcf	    T0IF	;Reset para timer Por superación de beats
+    return
+    
+ Clock:
+    banksel OSCCON	 ;Banco OSCCON 
+    bcf	    IRCF2	 ;frecuencia de reloj interno con 125KHz
+    bcf	    IRCF1	
+    bsf	    IRCF0	
+    bsf	    SCS		
+    return
+   
+ Inc_D:
+    ;call    Delay	 ;Llamamos a la sub-rutina Delay
+    btfsc   PORTA, 0	 ;Revisa de nuevo si no esta presionado
+    
+    goto    $-1		 ;ejecuta una linea atrás	        
+    incf    PORTD
+    return
+    
+ Dec_D:
+    ;call    Delay
+    btfsc   PORTA, 1	 ;Revisa de nuevo si no esta presionado
+    goto    $-1		 ;ejecuta una linea atrás	        
+    decf    PORTD
+    return    
+    
+    
+end
